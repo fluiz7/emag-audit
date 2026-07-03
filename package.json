@@ -1,0 +1,22 @@
+{
+  "name": "emag-audit",
+  "version": "0.1.0",
+  "description": "Static accessibility auditor for the Brazilian standards ecosystem: WCAG 2.2 + eMAG 3.1 checks with instructional Markdown reports (the format public institutions actually need).",
+  "type": "module",
+  "bin": { "emag-audit": "src/cli.js" },
+  "main": "src/audit.js",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "repository": { "type": "git", "url": "git+https://github.com/fluiz7/emag-audit.git" },
+  "keywords": ["accessibility", "a11y", "wcag", "emag", "audit", "cli", "brasil"],
+  "author": "Luiz Felipe Cantanhede Cristino",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "node-html-parser": "^7.0.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.9"
+  }
+}
