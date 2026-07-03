@@ -13,11 +13,15 @@ International tools (axe, WAVE) speak WCAG — but Brazilian government sites an
 ## Quickstart
 
 ```bash
-npm install -g emag-audit   # or: npx emag-audit <alvo>
+# direto do GitHub (sem instalar):
+npx github:fluiz7/emag-audit https://exemplo.gov.br --report relatorio.md
 
-emag-audit https://exemplo.gov.br --report relatorio.md
-emag-audit ./pagina.html --json resultado.json
+# ou clonando:
+git clone https://github.com/fluiz7/emag-audit && cd emag-audit && npm install
+node src/cli.js ./pagina.html --json resultado.json
 ```
+
+> Publicação no registro npm está no roadmap; por ora use `npx github:`.
 
 Console output (colored, norm-referenced):
 
@@ -68,7 +72,7 @@ critérios: WCAG 2.2 · eMAG 3.1 (análise estática)
 Exit code is `1` when any **erro**-severity barrier is found:
 
 ```yaml
-- run: npx emag-audit https://staging.meusite.gov.br
+- run: npx github:fluiz7/emag-audit https://staging.meusite.gov.br
 ```
 
 ## Programmatic API
