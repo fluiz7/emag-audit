@@ -48,7 +48,12 @@ async function main() {
   try {
     html = await loadHtml(target);
   } catch (e) {
-    console.error(C.red(`erro: ${e.message}`));
+    const cause = e.cause && (e.cause.code || e.cause.message);
+    console.error(C.red(`erro: não foi possível carregar "${target}"`));
+    console.error(C.red(`      ${e.message}${cause ? ` (${cause})` : ""}`));
+    if (cause === "ENOTFOUND" || cause === "EAI_AGAIN") {
+      console.error(C.yellow(`      dica: o domínio não foi encontrado — confira se o endereço está correto.`));
+    }
     process.exit(2);
   }
 
