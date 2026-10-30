@@ -6,9 +6,10 @@
  *
  * Exit code: 1 when any "erro" is found (CI-friendly), 0 otherwise.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import process from "node:process";
 import { audit } from "./audit.js";
+import { loadHtml } from "./load.js";
 import { buildReport } from "./report.js";
 
 const C = {
@@ -24,15 +25,6 @@ const SEV_PAINT = { erro: C.red, aviso: C.yellow, info: C.cyan };
 function usage() {
   console.log(`uso: emag-audit <url|arquivo.html> [--report saida.md] [--json saida.json] [--no-vlibras-hint]`);
   process.exit(2);
-}
-
-async function loadHtml(target) {
-  if (/^https?:\/\//i.test(target)) {
-    const res = await fetch(target, { headers: { "User-Agent": "emag-audit/0.1 (+https://github.com/fluiz7/emag-audit)" } });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ao buscar ${target}`);
-    return res.text();
-  }
-  return readFile(target, "utf8");
 }
 
 async function main() {
@@ -61,6 +53,11 @@ async function main() {
 
   console.log(C.bold(`\nemag-audit — ${target}`));
   console.log(C.dim(`critérios: WCAG 2.2 · eMAG 3.1 (análise estática)\n`));
+  if (result.jsShell) {
+    console.log(C.yellow("  ⚠  A página parece ser montada por JavaScript: o HTML recebido é quase só scripts."));
+    console.log(C.yellow("     Os achados abaixo descrevem o esqueleto, não o conteúdo real. Para auditar de"));
+    console.log(C.yellow("     verdade, salve o HTML renderizado (DevTools → Copy outerHTML) e passe o arquivo.\n"));
+  }
 
   for (const f of result.failed) {
     const paint = SEV_PAINT[f.severity];

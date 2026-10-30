@@ -7,28 +7,16 @@
  * review) | "info" (opportunity / Brazilian-context recommendation).
  */
 
+import { accessibleName, isHidden } from "./accname.js";
+
+// BCP 47 subset: primary language (2-3 letters) + optional subtags (pt-BR, en, es-419, zh-Hant-TW)
+const BCP47 = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
+
 const OBSOLETE_TAGS = ["marquee", "blink", "font", "center", "big", "acronym", "applet", "frame", "frameset"];
 
 function snippet(el, max = 120) {
   const html = (el.outerHTML || String(el)).replace(/\s+/g, " ").trim();
   return html.length > max ? html.slice(0, max) + "…" : html;
-}
-
-function accessibleName(el) {
-  const aria = (el.getAttribute("aria-label") || "").trim();
-  if (aria) return aria;
-  if ((el.getAttribute("aria-labelledby") || "").trim()) return "[aria-labelledby]";
-  const text = (el.structuredText || el.text || "").trim();
-  if (text) return text;
-  const img = el.querySelector && el.querySelector("img[alt]");
-  if (img && (img.getAttribute("alt") || "").trim()) return img.getAttribute("alt").trim();
-  const title = (el.getAttribute("title") || "").trim();
-  if (title) return title;
-  if (el.tagName === "INPUT") {
-    const v = (el.getAttribute("value") || "").trim();
-    if (v && ["submit", "button", "reset"].includes((el.getAttribute("type") || "").toLowerCase())) return v;
-  }
-  return "";
 }
 
 export const rules = [
@@ -41,7 +29,8 @@ export const rules = [
     check(root) {
       const html = root.querySelector("html");
       const lang = html ? (html.getAttribute("lang") || "").trim() : "";
-      return lang ? [] : [{ evidence: html ? snippet(html, 60) : "<html> ausente", detail: "atributo lang ausente ou vazio" }];
+      if (!lang) return [{ evidence: html ? snippet(html, 60) : "<html> ausente", detail: "atributo lang ausente ou vazio" }];
+      return BCP47.test(lang) ? [] : [{ evidence: snippet(html, 60), detail: `lang="${lang}" não é um código de idioma válido (BCP 47)` }];
     },
   },
   {
@@ -88,8 +77,12 @@ export const rules = [
     norms: { wcag: "4.1.2 Name, Role, Value (A) · 2.4.4 Link Purpose (A)", emag: "Rec. 3.5 · Rec. 6.1" },
     fix: 'Controles só com ícone precisam de nome: `<button aria-label="Ativar alto contraste">…</button>`. Nunca deixe `<a>`/`<button>` vazios.',
     check(root) {
-      return [...root.querySelectorAll("button"), ...root.querySelectorAll("a[href]")]
-        .filter((el) => !accessibleName(el))
+      const controls = [
+        ...root.querySelectorAll("button"), ...root.querySelectorAll("a[href]"),
+        ...root.querySelectorAll('[role="button"]'), ...root.querySelectorAll('[role="link"]'),
+      ];
+      return [...new Set(controls)]
+        .filter((el) => !isHidden(el) && !accessibleName(el, root))
         .map((el) => ({ evidence: snippet(el) }));
     },
   },
@@ -100,18 +93,11 @@ export const rules = [
     norms: { wcag: "3.3.2 Labels or Instructions (A) · 1.3.1 Info and Relationships (A)", emag: "Rec. 6.2" },
     fix: 'Associe `<label for="id-do-campo">` a cada campo, ou use `aria-label`/`aria-labelledby`. Placeholder não substitui etiqueta.',
     check(root) {
-      const labeledFor = new Set(root.querySelectorAll("label[for]").map((l) => l.getAttribute("for")));
       const fields = [...root.querySelectorAll("input"), ...root.querySelectorAll("select"), ...root.querySelectorAll("textarea")]
         .filter((f) => !["hidden", "submit", "button", "reset", "image"].includes((f.getAttribute("type") || "").toLowerCase()));
-      return fields.filter((f) => {
-        const id = f.getAttribute("id");
-        if (id && labeledFor.has(id)) return false;
-        if ((f.getAttribute("aria-label") || "").trim()) return false;
-        if ((f.getAttribute("aria-labelledby") || "").trim()) return false;
-        let p = f.parentNode;
-        while (p) { if (p.tagName === "LABEL") return false; p = p.parentNode; }
-        return true;
-      }).map((f) => ({ evidence: snippet(f) }));
+      return fields
+        .filter((f) => !isHidden(f) && !accessibleName(f, root))
+        .map((f) => ({ evidence: snippet(f) }));
     },
   },
   {
@@ -145,7 +131,7 @@ export const rules = [
       const links = root.querySelectorAll("a[href]");
       const hasSkip = links.slice(0, 5).some((a) => {
         const href = a.getAttribute("href") || "";
-        const txt = (a.text || "").toLowerCase();
+        const txt = accessibleName(a, root).toLowerCase();
         return href.startsWith("#") && /pular|ir para|skip|conte[uú]do/.test(txt);
       });
       return hasSkip ? [] : [{ evidence: "(nenhum link de salto no início da página)" }];
@@ -209,8 +195,10 @@ export const rules = [
       const m = root.querySelector('meta[name="viewport"]');
       if (!m) return [];
       const c = (m.getAttribute("content") || "").toLowerCase();
-      const blocked = /user-scalable\s*=\s*(no|0)/.test(c) || /maximum-scale\s*=\s*([01](\.\d+)?|2(\.0*)?)(?![\d.])/.test(c);
-      return blocked ? [{ evidence: snippet(m) }] : [];
+      const noScale = /user-scalable\s*=\s*(no|0)(?![\d.])/.test(c);
+      const max = c.match(/maximum-scale\s*=\s*([\d.]+)/);
+      const tooLow = max && Number(max[1]) < 2; // WCAG 1.4.4 requires zoom up to 200%
+      return noScale || tooLow ? [{ evidence: snippet(m), detail: noScale ? "user-scalable=no" : `maximum-scale=${max[1]} (< 2)` }] : [];
     },
   },
   {
@@ -243,7 +231,9 @@ export const rules = [
     norms: { wcag: "1.3.1 Info and Relationships (A)", emag: "Rec. 3.9 · Rec. 3.10" },
     fix: "Use `<th scope=\"col|row\">` para cabeçalhos e `<caption>` para o título da tabela.",
     check(root) {
-      return root.querySelectorAll("table").filter((t) => t.querySelectorAll("th").length === 0)
+      return root.querySelectorAll("table")
+        .filter((t) => !["presentation", "none"].includes((t.getAttribute("role") || "").toLowerCase()) && !isHidden(t))
+        .filter((t) => t.querySelectorAll("th").length === 0)
         .map((t) => ({ evidence: snippet(t, 80) }));
     },
   },
@@ -270,7 +260,8 @@ export const rules = [
     fix: "Considere integrar o widget gratuito VLibras (vlibras.gov.br) — ou a barra a11ybar, que o carrega sob demanda.",
     check(root, ctx) {
       if (!ctx.isBrazilContext) return [];
-      const has = root.querySelector("[vw]") || (root.outerHTML || "").includes("vlibras");
+      const has = root.querySelector("[vw]") ||
+        root.querySelectorAll("script[src]").some((s) => /vlibras/i.test(s.getAttribute("src")));
       return has ? [] : [{ evidence: "(widget VLibras não detectado)" }];
     },
   },

@@ -65,6 +65,18 @@ critérios: WCAG 2.2 · eMAG 3.1 (análise estática)
 
 > Static analysis has limits by design: contrast, keyboard traps and dynamic behaviour need a rendering engine and human testing (NVDA/Talkback). emag-audit covers the structural layer — the same one WAVE/AMAWeb converge on — and tells you *how to fix what it finds*.
 
+### How "accessible name" is computed
+
+Every check that asks *"does this element have a name?"* uses one shared module, [`src/accname.js`](src/accname.js) — a static subset of the W3C [Accessible Name Computation](https://www.w3.org/TR/accname-1.2/): `aria-labelledby` (resolved — a reference to a missing id is **not** a name) → `aria-label` → `<label>` → content (including `<img alt>`, `<svg aria-label>` and `<svg><title>`) → `title`. Elements removed from the accessibility tree (`hidden`, `aria-hidden="true"`, inline `display:none`) are not audited. Placeholder is deliberately never accepted as a name.
+
+### Pages rendered by JavaScript
+
+If the HTML is an empty shell filled in by a framework (React, Vue, Angular…), static analysis sees the skeleton, not the page. emag-audit detects this and **says so** in the console and the report instead of presenting "no `<h1>`" as a real barrier. To audit such a page, save the rendered HTML (DevTools → *Copy outerHTML*) and pass the file.
+
+### Encodings and timeouts
+
+Pages are decoded with their declared charset (HTTP `Content-Type`, then `<meta charset>`) — many `.gov.br` and older university pages are still ISO-8859-1, and decoding them as UTF-8 garbles the evidence quoted in the report. Fetching a URL times out after 20 s instead of hanging a CI job.
+
 **Field-validated:** run against a real Brazilian public-university site previously audited with WAVE and AMAWeb, emag-audit reproduced the professional toolchain's error set — the empty icon-buttons, the logo missing `alt` and the broken internal anchors — while attaching the eMAG/WCAG criterion and the fix to each one.
 
 ## Use in CI
@@ -80,7 +92,7 @@ Exit code is `1` when any **erro**-severity barrier is found:
 ```js
 import { audit } from "emag-audit";
 const result = audit(html, { source: "pagina.html" });
-// { passed, failed: [{ id, title, severity, norms, fix, findings }], counts }
+// { passed, failed: [{ id, title, severity, norms, fix, findings }], counts, jsShell }
 ```
 
 ## Sister project
