@@ -35,18 +35,19 @@ export function decodeHtml(bytes, contentType = "") {
 
 export async function loadHtml(target, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   if (/^https?:\/\//i.test(target)) {
-    let res;
+    // the signal covers the WHOLE exchange: a server can answer headers quickly and then
+    // stall while streaming the body, so reading the body must sit inside the same handler
     try {
-      res = await fetch(target, {
+      const res = await fetch(target, {
         headers: { "User-Agent": "emag-audit/0.2 (+https://github.com/fluiz7/emag-audit)" },
         signal: AbortSignal.timeout(timeoutMs),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ao buscar ${target}`);
+      return decodeHtml(new Uint8Array(await res.arrayBuffer()), res.headers.get("content-type"));
     } catch (e) {
       if (e.name === "TimeoutError") throw new Error(`tempo esgotado (${timeoutMs / 1000}s) ao buscar ${target}`);
       throw e;
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status} ao buscar ${target}`);
-    return decodeHtml(new Uint8Array(await res.arrayBuffer()), res.headers.get("content-type"));
   }
   return decodeHtml(new Uint8Array(await readFile(target)));
 }

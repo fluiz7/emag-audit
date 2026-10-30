@@ -7,10 +7,33 @@
  * review) | "info" (opportunity / Brazilian-context recommendation).
  */
 
-import { accessibleName, isHidden } from "./accname.js";
+import { accessibleName, isFocusable, isHidden } from "./accname.js";
 
 // BCP 47 subset: primary language (2-3 letters) + optional subtags (pt-BR, en, es-419, zh-Hant-TW)
 const BCP47 = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
+
+// Components that a framework hides with a STYLESHEET while closed (Bootstrap and
+// friends): `display:none` takes their content out of the focus order, which static
+// analysis cannot see. Verified on poli.ufrj.br: a closed `.modal.fade` with
+// aria-hidden="true" would otherwise be reported — on every Bootstrap site.
+const COLLAPSED = /(^|\s)(modal|offcanvas|collapse|dropdown-menu|popover|toast)(\s|$)/;
+const OPEN = /(^|\s)(show|open|showing|active|in)(\s|$)/;
+const UTILITY_HIDDEN = /(^|\s)(d-none|hidden|is-hidden|invisible|visually-hidden)(\s|$)/;
+
+function hiddenByStylesheet(n) {
+  const cls = n.getAttribute("class") || "";
+  return (COLLAPSED.test(cls) && !OPEN.test(cls)) || UTILITY_HIDDEN.test(cls);
+}
+
+/** Focusable element inside aria-hidden="true", unless a closed component hides it. */
+function focusableButAriaHidden(el) {
+  let ariaHidden = false;
+  for (let n = el; n && n.tagName; n = n.parentNode) {
+    if (hiddenByStylesheet(n) || n.getAttribute("hidden") !== undefined) return false;
+    if (n.getAttribute("aria-hidden") === "true") ariaHidden = true;
+  }
+  return ariaHidden;
+}
 
 const OBSOLETE_TAGS = ["marquee", "blink", "font", "center", "big", "acronym", "applet", "frame", "frameset"];
 
@@ -52,7 +75,9 @@ export const rules = [
     norms: { wcag: "1.1.1 Non-text Content (A)", emag: "Rec. 3.6" },
     fix: 'Toda `<img>` informativa precisa de `alt` que descreva a função/conteúdo; decorativas devem usar `alt=""` explícito.',
     check(root) {
-      return root.querySelectorAll("img").filter((img) => img.getAttribute("alt") === undefined)
+      return root.querySelectorAll("img")
+        .filter((img) => img.getAttribute("alt") === undefined && !isHidden(img))
+        .filter((img) => !["presentation", "none"].includes((img.getAttribute("role") || "").toLowerCase()))
         .map((img) => ({ evidence: snippet(img) }));
     },
   },
@@ -75,11 +100,13 @@ export const rules = [
     title: "Botões e links com nome acessível",
     severity: "erro",
     norms: { wcag: "4.1.2 Name, Role, Value (A) · 2.4.4 Link Purpose (A)", emag: "Rec. 3.5 · Rec. 6.1" },
-    fix: 'Controles só com ícone precisam de nome: `<button aria-label="Ativar alto contraste">…</button>`. Nunca deixe `<a>`/`<button>` vazios.',
+    fix: 'Controles só com ícone precisam de nome: `<button aria-label="Ativar alto contraste">…</button>`. Nunca deixe `<a>`/`<button>` vazios; `<input type="button">` precisa de `value` e `<input type="image">` de `alt`.',
     check(root) {
       const controls = [
         ...root.querySelectorAll("button"), ...root.querySelectorAll("a[href]"),
         ...root.querySelectorAll('[role="button"]'), ...root.querySelectorAll('[role="link"]'),
+        ...root.querySelectorAll("input").filter((i) =>
+          ["button", "submit", "reset", "image"].includes((i.getAttribute("type") || "").toLowerCase())),
       ];
       return [...new Set(controls)]
         .filter((el) => !isHidden(el) && !accessibleName(el, root))
@@ -128,11 +155,14 @@ export const rules = [
     norms: { wcag: "2.4.1 Bypass Blocks (A)", emag: "Rec. 1.5" },
     fix: 'Ofereça como primeiro link: `<a href="#conteudo">Pular para o conteúdo</a>`, apontando para `<main id="conteudo" tabindex="-1">`.',
     check(root) {
-      const links = root.querySelectorAll("a[href]");
+      const ids = new Set(root.querySelectorAll("[id]").map((el) => el.getAttribute("id")));
+      const links = root.querySelectorAll("a[href]").filter((a) => !isHidden(a));
       const hasSkip = links.slice(0, 5).some((a) => {
-        const href = a.getAttribute("href") || "";
+        const target = (a.getAttribute("href") || "").replace(/^#/, "");
+        if (!(a.getAttribute("href") || "").startsWith("#") || !target || !ids.has(target)) return false;
         const txt = accessibleName(a, root).toLowerCase();
-        return href.startsWith("#") && /pular|ir para|skip|conte[uú]do/.test(txt);
+        // must point at the CONTENT ("Ir para o menu" is navigation, not a bypass)
+        return /conte[uú]do|principal|\bmain\b|\bcontent\b|pular\s+(a\s+)?navega|skip\s+nav/.test(txt);
       });
       return hasSkip ? [] : [{ evidence: "(nenhum link de salto no início da página)" }];
     },
@@ -145,7 +175,8 @@ export const rules = [
     fix: 'Avise no próprio link: `Portal da UFRJ <span class="sr-only">(abre em nova aba)</span>` e inclua `rel="noopener"`.',
     check(root) {
       return root.querySelectorAll('a[target="_blank"]').filter((a) => {
-        const t = ((a.text || "") + " " + (a.getAttribute("aria-label") || "") + " " + (a.getAttribute("title") || "")).toLowerCase();
+        if (isHidden(a)) return false;
+        const t = (accessibleName(a, root) + " " + (a.getAttribute("title") || "")).toLowerCase();
         return !/nova (aba|janela)|new (tab|window)/.test(t);
       }).map((a) => ({ evidence: snippet(a) }));
     },
@@ -167,7 +198,7 @@ export const rules = [
     norms: { wcag: "4.1.2 Name, Role, Value (A)", emag: "Rec. 2.2" },
     fix: 'Adicione `title` descritivo: `<iframe title="Mapa da unidade" …>`.',
     check(root) {
-      return root.querySelectorAll("iframe").filter((f) => !(f.getAttribute("title") || "").trim())
+      return root.querySelectorAll("iframe").filter((f) => !isHidden(f) && !accessibleName(f, root))
         .map((f) => ({ evidence: snippet(f) }));
     },
   },
@@ -199,6 +230,20 @@ export const rules = [
       const max = c.match(/maximum-scale\s*=\s*([\d.]+)/);
       const tooLow = max && Number(max[1]) < 2; // WCAG 1.4.4 requires zoom up to 200%
       return noScale || tooLow ? [{ evidence: snippet(m), detail: noScale ? "user-scalable=no" : `maximum-scale=${max[1]} (< 2)` }] : [];
+    },
+  },
+  {
+    id: "foco-oculto",
+    title: "Elementos focáveis não ocultos de tecnologias assistivas",
+    // aviso, not erro: whether the container is display:none can only be decided with
+    // the stylesheet, and a CI gate must not fail on what it cannot see
+    severity: "aviso",
+    norms: { wcag: "4.1.2 Name, Role, Value (A) · 2.4.3 Focus Order (A)", emag: "Rec. 2.1" },
+    fix: 'Elemento dentro de `aria-hidden="true"` não pode receber foco: o teclado chega nele, mas o leitor de tela não anuncia nada. Remova o `aria-hidden` ou tire o elemento da ordem de foco (`tabindex="-1"`, `disabled` ou `inert` no contêiner).',
+    check(root) {
+      return root.querySelectorAll("*")
+        .filter((el) => isFocusable(el) && focusableButAriaHidden(el))
+        .map((el) => ({ evidence: snippet(el, 100) }));
     },
   },
   {
@@ -260,8 +305,12 @@ export const rules = [
     fix: "Considere integrar o widget gratuito VLibras (vlibras.gov.br) — ou a barra a11ybar, que o carrega sob demanda.",
     check(root, ctx) {
       if (!ctx.isBrazilContext) return [];
+      const scripts = root.querySelectorAll("script");
       const has = root.querySelector("[vw]") ||
-        root.querySelectorAll("script[src]").some((s) => /vlibras/i.test(s.getAttribute("src")));
+        scripts.some((s) => /vlibras/i.test(s.getAttribute("src") || "")) ||
+        // a11ybar loads VLibras on demand: its script + `vlibras: true` in its config
+        (scripts.some((s) => /a11ybar/i.test(s.getAttribute("src") || "")) &&
+          scripts.some((s) => /vlibras\s*:\s*true/.test(s.text || "")));
       return has ? [] : [{ evidence: "(widget VLibras não detectado)" }];
     },
   },
