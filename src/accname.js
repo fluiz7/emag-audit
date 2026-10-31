@@ -41,9 +41,35 @@ export function isHidden(el) {
   return false;
 }
 
+/** Inside a disabled <fieldset> — except its first <legend>, which HTML keeps enabled. */
+function inDisabledFieldset(el) {
+  for (let n = el.parentNode; n && n.tagName; n = n.parentNode) {
+    if (n.tagName === "FIELDSET" && hasAttr(n, "disabled")) {
+      const legend = n.childNodes.find((c) => c.tagName === "LEGEND");
+      let inLegend = false;
+      for (let m = el; m && m !== n; m = m.parentNode) if (m === legend) inLegend = true;
+      if (!inLegend) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Removed from the focus order by markup alone: `hidden`, `inert`, `<template>`, or inline
+ * `display:none` / `visibility:hidden` on the element or an ancestor.
+ */
+export function outOfFocusOrder(el) {
+  for (let n = el; n && n.tagName; n = n.parentNode) {
+    if (hasAttr(n, "hidden") || hasAttr(n, "inert") || n.tagName === "TEMPLATE") return true;
+    const style = (n.getAttribute("style") || "").replace(/\s+/g, "").toLowerCase();
+    if (/display:none|visibility:hidden/.test(style)) return true;
+  }
+  return false;
+}
+
 /** Elements that receive keyboard focus (static view: no CSS, no scripts). */
 export function isFocusable(el) {
-  if (!el.tagName || hasAttr(el, "disabled")) return false;
+  if (!el.tagName || hasAttr(el, "disabled") || inDisabledFieldset(el) || outOfFocusOrder(el)) return false;
   const tabindex = el.getAttribute("tabindex");
   if (tabindex !== undefined && Number(tabindex) < 0) return false;
   if (tabindex !== undefined) return true;
@@ -82,9 +108,13 @@ function textFrom(node, { includeHidden = false, skipControls = false } = {}) {
 
 const clean = (s) => s.replace(/\s+/g, " ").trim();
 
-/** Text of a node referenced by id or <label for>: hidden or not, it counts. */
+/**
+ * Text of a node referenced by id or <label for> (accname 2A): if the referenced node is
+ * ITSELF hidden, its whole subtree counts; if it is visible, hidden descendants (an
+ * `aria-hidden` asterisk, a `hidden` span) stay excluded like anywhere else.
+ */
 const referencedText = (node, skipControls = false) =>
-  clean(textFrom(node, { includeHidden: true, skipControls }));
+  clean(textFrom(node, { includeHidden: isHidden(node), skipControls }));
 
 /**
  * Accessible name of `el`, or "" when it has none.
@@ -128,6 +158,9 @@ export function accessibleName(el, root) {
     }
     for (let p = el.parentNode; p && p.tagName; p = p.parentNode) {
       if (p.tagName === "LABEL") {
+        // a label with `for` labels THAT control only, even if it wraps another one
+        const forId = attr(p, "for");
+        if (forId && forId !== id) break;
         const name = clean(textFrom(p, { skipControls: true }));
         if (name) return name;
         break;

@@ -18,7 +18,9 @@ const BCP47 = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
 // aria-hidden="true" would otherwise be reported — on every Bootstrap site.
 const COLLAPSED = /(^|\s)(modal|offcanvas|collapse|dropdown-menu|popover|toast)(\s|$)/;
 const OPEN = /(^|\s)(show|open|showing|active|in)(\s|$)/;
-const UTILITY_HIDDEN = /(^|\s)(d-none|hidden|is-hidden|invisible|visually-hidden)(\s|$)/;
+// NOT `visually-hidden` / `sr-only`: those clip the element off-screen but keep it in the
+// Tab order — a focusable `.visually-hidden` inside aria-hidden is exactly the barrier.
+const UTILITY_HIDDEN = /(^|\s)(d-none|hidden|is-hidden|invisible)(\s|$)/;
 
 function hiddenByStylesheet(n) {
   const cls = n.getAttribute("class") || "";
@@ -29,7 +31,8 @@ function hiddenByStylesheet(n) {
 function focusableButAriaHidden(el) {
   let ariaHidden = false;
   for (let n = el; n && n.tagName; n = n.parentNode) {
-    if (hiddenByStylesheet(n) || n.getAttribute("hidden") !== undefined) return false;
+    // (hidden / inert / inline display:none / <template> are handled by isFocusable)
+    if (hiddenByStylesheet(n)) return false;
     if (n.getAttribute("aria-hidden") === "true") ariaHidden = true;
   }
   return ariaHidden;
