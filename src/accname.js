@@ -67,12 +67,28 @@ export function outOfFocusOrder(el) {
   return false;
 }
 
+/** Inside a `<template>`: inert content, not part of the document. */
+export function inTemplate(el) {
+  for (let n = el; n && n.tagName; n = n.parentNode) if (n.tagName === "TEMPLATE") return true;
+  return false;
+}
+
+/**
+ * `tabindex` as browsers read it (HTML "rules for parsing integers"): leading whitespace,
+ * optional sign, digits; anything after is ignored (`"2px"` → 2, `"1.5"` → 1). NaN when
+ * invalid (`""`, `"abc"`) — the attribute is then ignored, not treated as 0.
+ */
+export function parseTabindex(value) {
+  const m = /^[\t\n\f\r ]*([+-]?\d+)/.exec(value ?? "");
+  return m ? parseInt(m[1], 10) : NaN;
+}
+
 /** Elements that receive keyboard focus (static view: no CSS, no scripts). */
 export function isFocusable(el) {
   if (!el.tagName || hasAttr(el, "disabled") || inDisabledFieldset(el) || outOfFocusOrder(el)) return false;
-  const tabindex = el.getAttribute("tabindex");
-  if (tabindex !== undefined && Number(tabindex) < 0) return false;
-  if (tabindex !== undefined) return true;
+  const tabindex = parseTabindex(el.getAttribute("tabindex"));
+  if (tabindex < 0) return false;
+  if (tabindex >= 0) return true;   // NaN (invalid value) falls through to native focusability
   if (el.tagName === "A") return hasAttr(el, "href");
   if (el.tagName === "INPUT") return attr(el, "type").toLowerCase() !== "hidden";
   return ["BUTTON", "SELECT", "TEXTAREA", "IFRAME", "SUMMARY"].includes(el.tagName);

@@ -7,7 +7,11 @@
  * review) | "info" (opportunity / Brazilian-context recommendation).
  */
 
-import { accessibleName, isFocusable, isHidden } from "./accname.js";
+import { accessibleName, inTemplate, isFocusable, isHidden, outOfFocusOrder, parseTabindex } from "./accname.js";
+
+/** Ids that exist in the document — `<template>` content is not part of it. */
+const documentIds = (root) =>
+  new Set(root.querySelectorAll("[id]").filter((el) => !inTemplate(el)).map((el) => el.getAttribute("id")));
 
 // BCP 47 subset: primary language (2-3 letters) + optional subtags (pt-BR, en, es-419, zh-Hant-TW)
 const BCP47 = /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/i;
@@ -137,7 +141,8 @@ export const rules = [
     norms: { wcag: "1.3.1 Info and Relationships (A) · 2.4.6 Headings and Labels (AA)", emag: "Rec. 1.3" },
     fix: "Use exatamente um `<h1>` por página e não pule níveis (h2 → h4). A hierarquia é o “sumário” de quem navega por leitores de tela.",
     check(root) {
-      const hs = root.querySelectorAll("h1,h2,h3,h4,h5,h6");
+      // hidden headings (and <template> content) are not in the outline a reader navigates
+      const hs = root.querySelectorAll("h1,h2,h3,h4,h5,h6").filter((h) => !isHidden(h));
       const findings = [];
       const h1s = hs.filter((h) => h.tagName === "H1");
       if (h1s.length === 0) findings.push({ evidence: "(nenhum <h1> na página)" });
@@ -158,7 +163,7 @@ export const rules = [
     norms: { wcag: "2.4.1 Bypass Blocks (A)", emag: "Rec. 1.5" },
     fix: 'Ofereça como primeiro link: `<a href="#conteudo">Pular para o conteúdo</a>`, apontando para `<main id="conteudo" tabindex="-1">`.',
     check(root) {
-      const ids = new Set(root.querySelectorAll("[id]").map((el) => el.getAttribute("id")));
+      const ids = documentIds(root);
       const links = root.querySelectorAll("a[href]").filter((a) => !isHidden(a));
       const hasSkip = links.slice(0, 5).some((a) => {
         const target = (a.getAttribute("href") || "").replace(/^#/, "");
@@ -191,7 +196,7 @@ export const rules = [
     norms: { wcag: "— (boas práticas de parsing)", emag: "Rec. 1.1 (padrões web)" },
     fix: "Substitua elementos obsoletos por HTML5 semântico + CSS (`<center>` → CSS; `<font>` → CSS; `<marquee>/<blink>` → remova).",
     check(root) {
-      return OBSOLETE_TAGS.flatMap((tag) => root.querySelectorAll(tag).map((el) => ({ evidence: snippet(el, 80), detail: `<${tag}> é obsoleto` })));
+      return OBSOLETE_TAGS.flatMap((tag) => root.querySelectorAll(tag).filter((el) => !inTemplate(el)).map((el) => ({ evidence: snippet(el, 80), detail: `<${tag}> é obsoleto` })));
     },
   },
   {
@@ -212,8 +217,9 @@ export const rules = [
     norms: { wcag: "2.4.1 Bypass Blocks (A)", emag: "Rec. 1.5" },
     fix: "Cada `href=\"#alvo\"` precisa de um elemento com `id=\"alvo\"` na página; remova ou corrija âncoras mortas (`href=\"#\"`).",
     check(root) {
-      const ids = new Set(root.querySelectorAll("[id]").map((el) => el.getAttribute("id")));
+      const ids = documentIds(root);
       return root.querySelectorAll('a[href^="#"]').filter((a) => {
+        if (isHidden(a)) return false;
         const target = (a.getAttribute("href") || "").slice(1);
         return target !== "" ? !ids.has(target) : true; // href="#" também é âncora morta
       }).map((a) => ({ evidence: snippet(a) }));
@@ -256,7 +262,8 @@ export const rules = [
     norms: { wcag: "2.4.3 Focus Order (A)", emag: "Rec. 1.4" },
     fix: "Troque `tabindex` > 0 por ordem natural do DOM (`tabindex=\"0\"` só quando necessário). Ordem forçada quebra a navegação por teclado.",
     check(root) {
-      return root.querySelectorAll("[tabindex]").filter((el) => Number(el.getAttribute("tabindex")) > 0)
+      return root.querySelectorAll("[tabindex]")
+        .filter((el) => parseTabindex(el.getAttribute("tabindex")) > 0 && !outOfFocusOrder(el))
         .map((el) => ({ evidence: snippet(el, 80), detail: `tabindex=${el.getAttribute("tabindex")}` }));
     },
   },
@@ -293,7 +300,9 @@ export const rules = [
     fix: "Garanta que cada `id` apareça uma única vez — `label[for]`, `aria-labelledby` e âncoras dependem disso.",
     check(root) {
       const seen = new Map();
-      for (const el of root.querySelectorAll("[id]")) {
+      // hidden elements still count (a hidden duplicate breaks label[for] / aria-labelledby);
+      // <template> content does not — it is not in the document
+      for (const el of root.querySelectorAll("[id]").filter((e) => !inTemplate(e))) {
         const id = el.getAttribute("id");
         seen.set(id, (seen.get(id) || 0) + 1);
       }
