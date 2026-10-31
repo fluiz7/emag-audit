@@ -18,6 +18,12 @@ export function buildReport(result) {
   p(`> Critérios: **WCAG 2.2** e **eMAG 3.1** (ecossistema ABNT NBR 17225:2025).`);
   p(`> Análise estática do HTML — complemente com testes manuais (NVDA/Talkback) e ferramentas como WAVE/AMAWeb.`);
   p();
+  if (result.jsShell) {
+    p(`> ⚠️ **Atenção: esta página parece ser montada por JavaScript** (o HTML recebido é quase só um contêiner vazio e scripts).`);
+    p(`> A análise estática viu o *esqueleto*, não o conteúdo que o usuário vê — os achados abaixo podem não representar a página real.`);
+    p(`> Para auditá-la, salve o HTML já renderizado (DevTools → Elements → Copy outerHTML) e rode o emag-audit sobre o arquivo.`);
+    p();
+  }
   p(`**Resumo:** ${result.counts.erro} erro(s) · ${result.counts.aviso} aviso(s) · ${result.counts.info} oportunidade(s) · ${result.passed.length} critérios atendidos.`);
   p();
 

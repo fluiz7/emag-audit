@@ -1,6 +1,6 @@
 {
   "name": "emag-audit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Static accessibility auditor for the Brazilian standards ecosystem: WCAG 2.2 + eMAG 3.1 checks with instructional Markdown reports (the format public institutions actually need).",
   "type": "module",
   "bin": { "emag-audit": "src/cli.js" },
